@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepSeek Harness</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 15px/1.6 system-ui, sans-serif;
+    background: #101623;
+    color: #e6ebf5;
+  }
+  main { max-width: 620px; padding: 32px; text-align: center; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+  p { margin: 4px 0; color: #9aa7bf; }
+  .spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 20px;
+    border-radius: 50%;
+    border: 3px solid #2a3550;
+    border-top-color: #4d6bfe;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  .error h1, .error p { color: #ff9d9d; }
+  pre {
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 40vh;
+    overflow: auto;
+    margin: 16px 0 0;
+    background: #0b101c;
+    border: 1px solid #2a3550;
+    border-radius: 8px;
+    padding: 12px;
+    font: 12px/1.5 ui-monospace, monospace;
+    color: #c7d2e8;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main id="root">
+  <div id="spinner" class="spinner"></div>
+  <h1 id="title">Starting DeepSeek Harness…</h1>
+  <p id="hint">Starting the dsh web backend; a first source checkout can take one to two minutes.</p>
+  <pre id="detail" class="hidden"></pre>
+</main>
+<script>
+  const error = new URLSearchParams(location.search).get('error')
+  if (error !== null) {
+    document.getElementById('root').classList.add('error')
+    document.getElementById('spinner').classList.add('hidden')
+    document.getElementById('title').textContent = 'The dsh web backend failed to start'
+    document.getElementById('hint').textContent = 'Fix the reported problem, then reopen this application.'
+    const stderr = new URLSearchParams(location.search).get('stderr')
+    const detail = document.getElementById('detail')
+    detail.textContent = stderr === null || stderr === '' ? error : error + '\n\n' + stderr
+    detail.classList.remove('hidden')
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "externalBin": ["../.tauri-build/bin/node"],
+    "resources": {
+      "../.tauri-build/runtime": "runtime/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

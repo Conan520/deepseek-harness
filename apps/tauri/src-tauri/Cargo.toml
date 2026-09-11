@@ -1,0 +1,17 @@
+[package]
+name = "dsh-tauri"
+description = "Tauri desktop shell that boots `dsh web` as a child process and hosts the Web UI in the system webview"
+version = "0.1.5-alpha.2"
+license = "MIT"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = { version = "2", features = [] }
+tokio = { version = "1", features = [] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

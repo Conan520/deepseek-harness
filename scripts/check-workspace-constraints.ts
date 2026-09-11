@@ -56,9 +56,9 @@ const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
 /** npm namespace reserved for experimental packages. */
 const experimentalPackageNamePrefix = '@deepseek-ai/dsh-experimental-'
 /** Ordinary directories whose packages this repository publishes: one release member each. */
-const standardReleaseMemberDirectory = /^(?:packages\/(?!experimental\/)[^/]+\/[^/]+|apps\/(?!desktop(?:-host)?$)[^/]+|vendor\/[^/]+)$/
-/** Installable application assembled by electron-builder rather than published to npm. */
-const desktopApplicationDirectory = 'apps/desktop'
+const standardReleaseMemberDir = /^(?:packages\/(?!experimental\/)[^/]+\/[^/]+|apps\/(?!(?:desktop(?:-host)?|tauri)$)[^/]+|vendor\/[^/]+)$/
+/** Application directories assembled by their own tooling rather than published to npm. */
+const applicationDirectories = new Set(['apps/desktop', 'apps/tauri'])
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js'],
@@ -289,7 +289,7 @@ export function checkExperimentalManifest({ dir, manifest }: WorkspaceManifest):
 }
 
 function isReleaseMemberDirectory(dir: string): boolean {
-  return standardReleaseMemberDirectory.test(dir) || isPublicExperimentalPackageDirectory(dir)
+  return standardReleaseMemberDir.test(dir) || isPublicExperimentalPackageDirectory(dir)
 }
 
 /**
@@ -380,7 +380,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     }
   }
 
-  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (dir.startsWith('apps/') && !applicationDirectories.has(dir) && manifest.name?.startsWith('@deepseek-ai/')) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)
@@ -494,7 +494,7 @@ export function checkExperimentalDependencyIsolation(manifests: readonly Workspa
     .filter(name => name !== undefined))
   const errors: string[] = []
   for (const { dir, manifest } of manifests) {
-    if (!standardReleaseMemberDirectory.test(dir) && dir !== 'python/sdk-runtime') continue
+    if (!standardReleaseMemberDir.test(dir) && dir !== 'python/sdk-runtime') continue
     for (const section of runtimeDependencySections) {
       for (const name of Object.keys(manifest[section] ?? {})) {
         if (!experimentalNames.has(name)) continue
