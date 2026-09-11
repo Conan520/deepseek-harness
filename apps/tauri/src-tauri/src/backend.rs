@@ -357,9 +357,10 @@ fn open_external(url: &Url) {
     let status = {
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("rundll32")
-                .args(["url.dll,FileProtocolHandler", target])
-                .status()
+            let mut command = std::process::Command::new("rundll32");
+            command.args(["url.dll,FileProtocolHandler", target]);
+            suppress_console_window(&mut command);
+            command.status()
         }
         #[cfg(target_os = "macos")]
         {
@@ -373,6 +374,17 @@ fn open_external(url: &Url) {
     if let Err(error) = status {
         eprintln!("dsh-tauri: could not open {target} with the system handler: {error}");
     }
+}
+
+/// Keep a spawned console program from opening a visible console window.
+///
+/// This process runs windowed (no console of its own), so Windows would
+/// allocate one for each console child — a visible flash per spawn.
+#[cfg(target_os = "windows")]
+fn suppress_console_window(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
 }
 
 /// Terminate the backend and every process it spawned.
@@ -389,10 +401,10 @@ fn kill_tree(pid: u32) {
     {
         // The backend spawns agent shells; /T reaches the whole tree and /F
         // avoids console-dependent graceful-shutdown paths.
-        if let Err(error) = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .status()
-        {
+        let mut command = std::process::Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        suppress_console_window(&mut command);
+        if let Err(error) = command.status() {
             eprintln!("dsh-tauri: could not terminate the backend process tree: {error}");
         }
     }
