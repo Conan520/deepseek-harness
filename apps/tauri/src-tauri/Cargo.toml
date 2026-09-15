@@ -5,13 +5,22 @@ version = "0.1.5-alpha.2"
 license = "MIT"
 edition = "2021"
 
+# The shipped executable is dsh.exe (see also mainBinaryName in
+# tauri.conf.json); the crate keeps the dsh-tauri name to stay unambiguous
+# next to the workspace's npm dsh CLI.
+[[bin]]
+name = "dsh"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["image-ico"] }
+tauri = { version = "2", features = ["image-ico", "tray-icon"] }
 tauri-plugin-shell = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = [] }
+sys-locale = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

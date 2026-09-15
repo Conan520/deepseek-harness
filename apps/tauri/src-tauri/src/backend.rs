@@ -302,7 +302,7 @@ fn show_backend(app: &AppHandle, url: &str) {
 /// Log one failure and swap the shell page to its error state.
 fn report_error(app: &AppHandle, message: &str, stderr_tail: &Arc<Mutex<String>>) {
     let tail = stderr_tail.lock().expect("stderr tail mutex").clone();
-    eprintln!("dsh-tauri: {message}");
+    eprintln!("dsh: {message}");
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
     };
@@ -320,7 +320,7 @@ fn report_error(app: &AppHandle, message: &str, stderr_tail: &Arc<Mutex<String>>
         Ok(parsed) => {
             let _ = window.navigate(parsed);
         }
-        Err(error) => eprintln!("dsh-tauri: could not build the error-page URL: {error}"),
+        Err(error) => eprintln!("dsh: could not build the error-page URL: {error}"),
     }
     let _ = window.show();
 }
@@ -372,7 +372,7 @@ fn open_external(url: &Url) {
         }
     };
     if let Err(error) = status {
-        eprintln!("dsh-tauri: could not open {target} with the system handler: {error}");
+        eprintln!("dsh: could not open {target} with the system handler: {error}");
     }
 }
 
@@ -405,7 +405,7 @@ fn kill_tree(pid: u32) {
         command.args(["/PID", &pid.to_string(), "/T", "/F"]);
         suppress_console_window(&mut command);
         if let Err(error) = command.status() {
-            eprintln!("dsh-tauri: could not terminate the backend process tree: {error}");
+            eprintln!("dsh: could not terminate the backend process tree: {error}");
         }
     }
     #[cfg(unix)]

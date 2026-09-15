@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`apps/tauri` 是只消费公开 `dsh web` 表面的 Tauri 2 壳。从检出中，它以仓库根目录为工作目录派生 `node --import tsx/esm apps/cli/src/bin.ts web --no-open --port 0`；从安装中，它派生可执行文件旁的捆绑运行时。两种子进程都经 `tauri-plugin-shell` 启动——捆绑解释器作为其 sidecar 二进制，源码启动作为普通 `node` 命令——因此壳命名的每个程序名都是编译期字面量，可执行路径解析由插件承担。壳从 `dsh web: <url>` stdout 行解析出带认证的 URL，并让系统 webview 导航过去。同源页面语义原样承载认证、RPC 与远程流 WebSocket；壳不引入传输、代理或自定义协议，也不向远程页面授予任何 Tauri IPC。离开回环源与壳自身源的导航交给系统浏览器。关闭窗口会终止后端整个进程树——Windows 上执行 `taskkill /PID <pid> /T /F`——因为后端会派生不应比它存活更久的 agent shell。
+`apps/tauri` 是只消费公开 `dsh web` 表面的 Tauri 2 壳。从检出中，它以仓库根目录为工作目录派生 `node --import tsx/esm apps/cli/src/bin.ts web --no-open --port 0`；从安装中，它派生可执行文件旁的捆绑运行时。两种子进程都经 `tauri-plugin-shell` 启动——捆绑解释器作为其 sidecar 二进制，源码启动作为普通 `node` 命令——因此壳命名的每个程序名都是编译期字面量，可执行路径解析由插件承担。壳从 `dsh web: <url>` stdout 行解析出带认证的 URL，并让系统 webview 导航过去。壳持有进程生命周期的单实例锁（`tauri-plugin-single-instance`，先于所有其他插件注册，使第二次启动在创建窗口或后端之前退出）；其回调负责弹出第一个实例的窗口。窗口自创建起即可见，显示一张品牌化静态 loading 页，导航发生时由 Web UI 替换；启动错误也渲染在同一页面。同源页面语义原样承载认证、RPC 与远程流 WebSocket；壳不引入传输、代理或自定义协议，也不向远程页面授予任何 Tauri IPC。离开回环源与壳自身源的导航交给系统浏览器。关闭请求直接最小化到托盘：窗口隐藏，鲸鱼托盘图标保持应用可达——左键恢复，右键菜单提供打开与退出，菜单中的退出（`app.exit(0)`）是离开托盘状态的唯一出口。只有真正终止才执行 `taskkill /PID <pid> /T /F`（Windows），因为后端会派生不应比它存活更久的 agent shell；驻留托盘的应用保持后端与会话存活。
 
 当检出缺少 `node_modules` 或 `apps/web/dist/index.html` 时，源码启动拒绝启动并在错误页上指出缺失的步骤。`DSH_TAURI_REPO` 在二进制于仓库外运行时显式指定仓库根目录，目录不是仓库根时启动大声失败；启动参数向量本身固定在壳里，环境值永远不能选择运行哪个程序。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 ## Consequences
 
-`dsh web: <url>` stdout 行是一个软契约：它的第一个空白分隔 token 必须仍是带认证的回环 URL，否则本壳的解析器不再识别它。捆绑运行时在打包时随 npm `latest` dist-tag 浮动，传递 `^` 范围在打包机的 pnpm 供应链策略下可以解析到更新的家族成员；需要冻结运行时时用 `DSH_TAURI_DSH_VERSION` 固定精确版本。崩溃的壳无法清理其后端（没有 Windows job object），异常退出可能遗留需要手动清理的 node 进程。shell 插件无法把子进程放入独立的 Unix 进程组，因此 Unix 终止只针对子进程本体并期望其孙进程跟随关闭；安装包本身仅面向 win-x64。升级捆绑的 dsh 需要重新打包并重装——本壳没有应用内更新器；事务性更新流程仍由 apps/desktop 承担。
+`dsh web: <url>` stdout 行是一个软契约：它的第一个空白分隔 token 必须仍是带认证的回环 URL，否则本壳的解析器不再识别它。捆绑运行时在打包时随 npm `latest` dist-tag 浮动，传递 `^` 范围在打包机的 pnpm 供应链策略下可以解析到更新的家族成员；需要冻结运行时时用 `DSH_TAURI_DSH_VERSION` 固定精确版本。崩溃的壳无法清理其后端（没有 Windows job object），异常退出可能遗留需要手动清理的 node 进程。驻留托盘的壳对扫视任务栏的用户而言与崩溃无异，且关闭按钮不再提供任何退出途径——鲸鱼托盘图标（Windows 11 默认收进溢出区）及其菜单中的退出项是唯一的恢复与退出入口。shell 插件无法把子进程放入独立的 Unix 进程组，因此 Unix 终止只针对子进程本体并期望其孙进程跟随关闭；安装包本身仅面向 win-x64。升级捆绑的 dsh 需要重新打包并重装——本壳没有应用内更新器；事务性更新流程仍由 apps/desktop 承担。
 
 ## Alternatives considered
 
