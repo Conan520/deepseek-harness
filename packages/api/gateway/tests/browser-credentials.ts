@@ -28,7 +28,7 @@ export function browserCookie(ctx: Context): string {
   if (existing !== undefined) return existing
   const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
   const target = new URL(ctx.connection.authenticatedUrl(origin))
-  let setCookie: string | undefined
+  let setCookie: string | readonly string[] | undefined
   ctx.connection.authorizeIndex({
     method: 'GET',
     url: `${target.pathname}${target.search}`,
@@ -37,8 +37,10 @@ export function browserCookie(ctx: Context): string {
     writeHead(_status, headers) { setCookie = headers?.['set-cookie'] },
     end() {},
   })
-  if (setCookie === undefined) throw new Error('gateway fixture did not receive a browser cookie')
-  const cookie = setCookie.split(';', 1)[0]!
+  const lines = setCookie === undefined ? [] : typeof setCookie === 'string' ? [setCookie] : [...setCookie]
+  const minted = lines.find(line => !line.includes('Max-Age=0'))
+  if (minted === undefined) throw new Error('gateway fixture did not receive a browser cookie')
+  const cookie = minted.split(';', 1)[0]!
   browserCookies.set(ctx, cookie)
   return cookie
 }

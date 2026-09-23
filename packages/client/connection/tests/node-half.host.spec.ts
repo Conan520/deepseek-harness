@@ -44,21 +44,21 @@ function fakeHttpServer(
 }
 
 /** Bodyless GET carrying the given headers (enough for the trust fence + bridge). */
-function fakeRequest(headers: Record<string, string>, url = `${API_PATH}/session.list`): IncomingMessage {
+function fakeRequest(headers: Record<string, string | string[]>, url = `${API_PATH}/session.list`): IncomingMessage {
   const request = Readable.from([]) as IncomingMessage
   Object.assign(request, { url, method: 'GET', headers })
   return request
 }
 
 /** JSON POST carrying a complete client-request envelope. */
-function fakePost(headers: Record<string, string>, url: string, body: unknown): IncomingMessage {
+function fakePost(headers: Record<string, string | string[]>, url: string, body: unknown): IncomingMessage {
   const request = Readable.from([Buffer.from(JSON.stringify(body))]) as IncomingMessage
   Object.assign(request, { url, method: 'POST', headers: { 'content-type': 'application/json', ...headers } })
   return request
 }
 
 /** Raw POST for malformed-body and media-type boundary cases. */
-function fakeRawPost(headers: Record<string, string>, url: string, body: string): IncomingMessage {
+function fakeRawPost(headers: Record<string, string | string[]>, url: string, body: string): IncomingMessage {
   const request = Readable.from([Buffer.from(body)]) as IncomingMessage
   Object.assign(request, { url, method: 'POST', headers })
   return request
@@ -67,13 +67,13 @@ function fakeRawPost(headers: Record<string, string>, url: string, body: string)
 /** Response recorder compatible with both the fence's short-circuit and the bridge. */
 function fakeResponse(): {
   response: ServerResponse
-  state: { status?: number; headers?: Record<string, string>; body?: unknown }
+  state: { status?: number; headers?: Record<string, string | string[]>; body?: unknown }
 } {
-  const state: { status?: number; headers?: Record<string, string>; body?: unknown } = {}
+  const state: { status?: number; headers?: Record<string, string | string[]>; body?: unknown } = {}
   const chunks: Buffer[] = []
   const response = Object.assign(new EventEmitter(), {
     writableEnded: false,
-    writeHead(value: number, headers?: Record<string, string>) {
+    writeHead(value: number, headers?: Record<string, string | string[]>) {
       state.status = value
       if (headers !== undefined) state.headers = headers
       return this
@@ -122,8 +122,10 @@ function browserCookie(connection: HostConnectionHandle, authority: string): str
     exchanged.response,
   )
   const setCookie = exchanged.state.headers?.['set-cookie']
-  if (setCookie === undefined) throw new Error('browser token exchange did not set a cookie')
-  return setCookie.split(';', 1)[0]!
+  const lines = setCookie === undefined ? [] : typeof setCookie === 'string' ? [setCookie] : [...setCookie]
+  const minted = lines.find(line => !line.includes('Max-Age=0'))
+  if (minted === undefined) throw new Error('browser token exchange did not set a cookie')
+  return minted.split(';', 1)[0]!
 }
 
 describe('connection node half', () => {

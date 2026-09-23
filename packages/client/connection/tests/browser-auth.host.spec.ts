@@ -27,7 +27,7 @@ function signedBodyCookie(store: RecordCredentials, name: string, body: string):
 
 interface ResponseState {
   status?: number
-  headers?: Readonly<Record<string, string>>
+  headers?: Readonly<Record<string, string | string[]>>
   body?: string
 }
 
@@ -76,14 +76,16 @@ function request(url: string, authority = '127.0.0.1:3080', init?: {
 function exchange(
   auth: BrowserAuth,
   authority = '127.0.0.1:3080',
-): { cookie: string; launchUrl: string; state: ResponseState } {
+): { cookie: string; cookiePair: string; launchUrl: string; state: ResponseState } {
   const launchUrl = auth.authenticatedUrl(`http://${authority}`)
   const target = new URL(launchUrl)
   const res = response()
   expect(auth.authorizeIndex(request(`${target.pathname}${target.search}`, authority), res.value)).toBe(false)
-  const setCookie = res.state.headers?.['set-cookie']
-  if (setCookie === undefined) throw new Error('token exchange did not set a cookie')
-  return { cookie: setCookie.split(';', 1)[0]!, launchUrl, state: res.state }
+  const raw = res.state.headers?.['set-cookie']
+  const lines = raw === undefined ? [] : typeof raw === 'string' ? [raw] : [...raw]
+  const mint = lines.find(line => !line.includes('Max-Age=0'))
+  if (mint === undefined) throw new Error('token exchange did not set a cookie')
+  return { cookie: mint.split(';', 1)[0]!, cookiePair: mint, launchUrl, state: res.state }
 }
 
 afterEach(() => {
@@ -105,8 +107,8 @@ describe('BrowserAuth', () => {
         'referrer-policy': 'no-referrer',
       },
     })
-    expect(login.state.headers?.['set-cookie']).toMatch(/; Max-Age=2592000; Path=\/; Expires=.*; HttpOnly; SameSite=Strict$/u)
-    expect(login.state.headers?.['set-cookie']).not.toContain('Secure')
+    expect(login.cookiePair).toMatch(/; Max-Age=2592000; Path=\/; Expires=.*; HttpOnly; SameSite=Strict$/u)
+    expect(login.cookiePair).not.toContain('Secure')
     expect(first.isAuthenticated(request('/', '127.0.0.1:3080', { cookie: login.cookie }))).toBe(true)
     expect(first.isAuthenticated({
       headers: new Headers({ host: '127.0.0.1:3080', cookie: login.cookie }),
@@ -157,9 +159,11 @@ describe('BrowserAuth', () => {
     const exchanged = response()
     expect(auth.authorizeIndex(request(`/?token=${String(token)}`, 'gateway.example'), exchanged.value)).toBe(false)
     const setCookie = exchanged.state.headers?.['set-cookie']
-    if (setCookie === undefined) throw new Error('mount exchange did not set a cookie')
+    const minted = setCookie === undefined ? [] : typeof setCookie === 'string' ? [setCookie] : [...setCookie]
+    const mountPair = minted.find(line => !line.includes('Max-Age=0'))
+    if (mountPair === undefined) throw new Error('mount exchange did not set a cookie')
     expect(auth.isAuthenticated(request(
-      '/', 'gateway.example', { cookie: setCookie.split(';', 1)[0]! },
+      '/', 'gateway.example', { cookie: mountPair.split(';', 1)[0]! },
     ))).toBe(true)
   })
 
@@ -228,6 +232,46 @@ describe('BrowserAuth', () => {
     expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie }))).toBe(false)
     vi.setSystemTime(new Date('2026-08-23T00:00:00.000Z'))
     expect(auth.isAuthenticated(request('/', '127.0.0.1:3080', { cookie }))).toBe(false)
+  })
+
+  it('mints one installation-named cookie and expires every other dsh-auth cookie', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store)
+    const first = exchange(auth)
+    expect(first.cookie.startsWith('dsh-auth-')).toBe(true)
+    // The name derives from the installation's signing secret, not the authority,
+    // so every launch of this installation overwrites one cookie instead of adding one.
+    const otherAuthority = exchange(auth, '127.0.0.1:59999')
+    expect(otherAuthority.cookie.split('=', 1)[0]).toBe(first.cookie.split('=', 1)[0])
+    const restarted = await createAuth(store)
+    const again = exchange(restarted)
+    expect(again.cookie.split('=', 1)[0]).toBe(first.cookie.split('=', 1)[0])
+
+    // A request carrying accumulated legacy names gets every other dsh-auth-*
+    // cookie expired alongside the fresh mint, and unrelated cookies are left alone.
+    const stale = ['dsh-auth-staleOne', 'dsh-auth-staleTwo']
+    const target = new URL(first.launchUrl)
+    const res = response()
+    expect(auth.authorizeIndex(request(`${target.pathname}${target.search}`, '127.0.0.1:3080', {
+      cookie: [
+        first.cookie,
+        `dsh-auth-staleOne=${'x'.repeat(200)}`,
+        `dsh-auth-staleTwo=${'y'.repeat(200)}`,
+        'theme=dark',
+      ].join('; '),
+    }), res.value)).toBe(false)
+    const raw = res.state.headers?.['set-cookie']
+    const lines = raw === undefined ? [] : typeof raw === 'string' ? [raw] : [...raw]
+    const expired = lines.filter(line => line.includes('Max-Age=0'))
+    expect(expired.map(line => line.split('=', 1)[0]).sort()).toEqual([...stale].sort())
+    for (const line of expired) {
+      const expires = /Expires=([^;]+)/u.exec(line)?.[1]
+      if (expires === undefined) throw new Error('expiry directive carries no Expires')
+      expect(new Date(expires).getTime()).toBeLessThan(Date.now())
+    }
+    expect(lines.some(line => line.startsWith('theme'))).toBe(false)
+    const name = first.cookie.split('=', 1)[0]
+    expect(lines.some(line => line.startsWith(`${name}=`) && !line.includes('Max-Age=0'))).toBe(true)
   })
 
   it('loads one secret per activation and replaces it after deletion on the next activation', async () => {

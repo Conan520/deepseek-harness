@@ -103,8 +103,31 @@ function tokenMatches(actual: string, expected: string): boolean {
   return actualBytes.byteLength === expectedBytes.byteLength && timingSafeEqual(actualBytes, expectedBytes)
 }
 
-function cookieName(authority: string): string {
-  return COOKIE_PREFIX + encodeBase64Url(createHash('sha256').update(authority).digest())
+function cookieName(secret: Buffer): string {
+  return COOKIE_PREFIX + encodeBase64Url(createHash('sha256').update(secret).digest())
+}
+
+/** Expire a previously minted session cookie inside the shared per-host cookie jar. */
+function expiredCookie(name: string): string {
+  return `${name}=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Strict`
+}
+
+/**
+ * Every distinct `dsh-auth-*` name in a request Cookie header except `keep`.
+ * Browsers share one jar per host across ports and keep expired-at-30-day
+ * cookies for the whole lifetime, so launches against fresh authorities
+ * accumulate names; the mint response retires every name that is not this
+ * installation's current one.
+ */
+function staleCookieNames(headerValue: string | undefined, keep: string): string[] {
+  if (headerValue === undefined) return []
+  const names = new Set<string>()
+  for (const segment of headerValue.split(';')) {
+    const at = segment.indexOf('=')
+    const name = (at === -1 ? segment : segment.slice(0, at)).trim()
+    if (name.startsWith(COOKIE_PREFIX) && name !== keep) names.add(name)
+  }
+  return [...names]
 }
 
 /** Read the exact generated cookie without implementing general Cookie decoding. */
@@ -185,6 +208,8 @@ async function initializeSecret(credentials: CredentialProvider): Promise<Buffer
 export class BrowserAuth {
   private readonly launchToken: string
   private readonly maxAgeMilliseconds: number
+  /** Stable per-installation cookie name: one jar slot per installation, never one per authority. */
+  private readonly name: string
 
   private constructor(
     processOwner: object,
@@ -192,6 +217,7 @@ export class BrowserAuth {
     maxAgeDays: number,
   ) {
     this.launchToken = processLaunchToken(processOwner)
+    this.name = cookieName(secret)
     this.maxAgeMilliseconds = maxAgeDays * DAY_MILLISECONDS
     if (!Number.isSafeInteger(this.maxAgeMilliseconds)
       || !Number.isSafeInteger(Date.now() + this.maxAgeMilliseconds)) {
@@ -228,9 +254,11 @@ export class BrowserAuth {
 
   /**
    * Authenticate an index request. A valid root query token mints the cookie
-   * and redirects to the directory-relative clean `./`; a valid cookie lets
-   * the caller serve the index; every other request receives the same minimal
-   * 401 response.
+   * and redirects to the directory-relative clean `./`; the mint also expires
+   * every other `dsh-auth-*` name the browser still carries (each historical
+   * launch authority minted its own name before the name was fixed per
+   * installation); a valid cookie lets the caller serve the index; every other
+   * request receives the same minimal 401 response.
    * @param req - incoming root or configured-index request.
    * @param res - response owned when this method returns false.
    * @returns true only when the caller may serve index.html.
@@ -255,9 +283,10 @@ export class BrowserAuth {
           'cache-control': 'no-store',
           'location': './',
           'referrer-policy': 'no-referrer',
-          'set-cookie': sessionCookie(
-            cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
-          ),
+          'set-cookie': [
+            sessionCookie(this.name, value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000)),
+            ...staleCookieNames(header(req.headers, 'cookie'), this.name).map(expiredCookie),
+          ],
         })
         res.end()
         return false
@@ -288,7 +317,7 @@ export class BrowserAuth {
     const authority = requestAuthority(request.headers)
     const rawCookie = header(request.headers, 'cookie')
     if (authority === undefined || rawCookie === undefined) return false
-    const value = cookieValue(rawCookie, cookieName(authority))
+    const value = cookieValue(rawCookie, this.name)
     if (value === undefined) return false
     const payload = decodeCookie(value, this.secret)
     if (payload === undefined || payload.authority !== authority) return false
